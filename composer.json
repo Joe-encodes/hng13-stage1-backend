@@ -1,0 +1,19 @@
+{
+    "name": "HNG13 Stage 1 String Analyzer API",
+    "description": "HNG13 Stage 1 Task String Analyzer API",
+    "require": {
+        "slim/slim": "^4",
+        "nyholm/psr7": "^1.8",
+        "vlucas/phpdotenv": "^5.5",
+        "illuminate/database": "^9.0",
+        "nesbot/carbon": "^2.67"
+
+    },
+
+    "authors": [
+        {
+            "name": "Adamu Joseph",
+            "email": "joseph.adamu.it@gmail.com"
+        }
+    ]
+}
