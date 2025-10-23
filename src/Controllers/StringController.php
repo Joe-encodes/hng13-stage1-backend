@@ -9,7 +9,6 @@ use App\StringService;
 
 class StringController {
     public static function create(Request $request, Response $response) {
-        // After middleware, the body should be parsed
         $body = $request->getParsedBody();
 
         if (!isset($body['value'])) {
