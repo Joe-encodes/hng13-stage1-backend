@@ -2,3 +2,4 @@
 vendor/
 .qodo
 database/database.sqlite
+*.cache
