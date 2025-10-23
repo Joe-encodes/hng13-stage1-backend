@@ -1,10 +1,17 @@
 <?php
+namespace App\Controllers;
+
 use Illuminate\Database\Capsule\Manager as DB;
+use Psr\Http\Message\ResponseInterface as Response;
+use Psr\Http\Message\ServerRequestInterface as Request;
 use Carbon\Carbon;
+use App\StringService;
 
 class StringController {
-    public static function create($request, $response) {
-        $body = json_decode($request->getBody()->getContents(), true);
+    public static function create(Request $request, Response $response) {
+        // After middleware, the body should be parsed
+        $body = $request->getParsedBody();
+
         if (!isset($body['value'])) {
             return self::json($response, ["error" => "Missing 'value' field"], 400);
         }
@@ -38,7 +45,39 @@ class StringController {
         ], 201);
     }
 
-    public static function json($res, $data, $code = 200) {
+    public static function getByValue(Request $request, Response $response, $args) {
+        $value = $args['string_value'];
+        $hash = hash('sha256', $value);
+    
+        $record = DB::table('strings')->where('id', $hash)->first();
+    
+        if (!$record) {
+            return self::json($response, ["error" => "String does not exist in the system"], 404);
+        }
+    
+        return self::json($response, [
+            "id" => $record->id,
+            "value" => $record->value,
+            "properties" => json_decode($record->properties, true),
+            "created_at" => $record->created_at,
+            "updated_at" => $record->updated_at
+        ]);
+    }
+
+	public static function delete(Request $request, Response $response, $args) {
+		$value = $args['string_value'];
+		$hash = hash('sha256', $value);
+	
+		$deleted = DB::table('strings')->where('id', $hash)->delete();
+	
+		if (!$deleted) {
+			return self::json($response, ["error" => "String does not exist in the system"], 404);
+		}
+	
+		return $response->withStatus(204);
+	}
+
+    public static function json(Response $res, $data, $code = 200) {
         $res->getBody()->write(json_encode($data, JSON_UNESCAPED_UNICODE));
         return $res->withHeader('Content-Type', 'application/json')->withStatus($code);
     }
