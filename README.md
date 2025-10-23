@@ -200,66 +200,173 @@ All endpoints are prefixed with `http://localhost:8000` (for local development).
 - **Error Responses**:
     - `404 Not Found`: String does not exist.
 
-## AWS Deployment Notes
+## AWS Deployment Notes (EC2 with Nginx & PHP 8.3-FPM)
 
-Deploying a PHP application like this to AWS can be done in several ways (e.g., EC2 with Nginx/Apache + PHP-FPM, Elastic Beanstalk, Lambda with Bref). Here are general considerations, focusing on a typical EC2 setup for clarity:
+This section provides a detailed, step-by-step guide for deploying this PHP application on an AWS EC2 instance using Nginx as the web server and PHP 8.3-FPM. These instructions assume you are using an Ubuntu EC2 instance and have SSH access.
 
-1.  **Server Setup (e.g., EC2 Instance):**
-    *   Provision an EC2 instance (e.g., Ubuntu, Amazon Linux).
-    *   Install PHP (8.4 recommended), Composer, Nginx (or Apache), and PHP-FPM.
-    *   Ensure necessary PHP extensions are installed (e.g., `php-sqlite3` for local testing, `php-pdo_sqlite` if using SQLite, or appropriate drivers for other databases).
+**Important:** Replace `your_domain.com`, `[YOUR_GITHUB_REPO_LINK]`, and placeholder values (like database credentials) with your actual information.
 
-2.  **Code Deployment:**
-    *   Clone your GitHub repository onto the EC2 instance.
-    *   Run `composer install` on the server to install production dependencies.
+### 1. Server Setup: Installing Prerequisites
 
-3.  **Web Server Configuration (Nginx Example):**
-    *   Configure Nginx to serve your application from the `public/` directory.
-    *   A typical Nginx server block might look like this (adjust `your_domain.com` and `fastcgi_pass` as needed):
-        ```nginx
-        server {
-            listen 80;
-            server_name your_domain.com;
-            root /var/www/hng13-stage1/public; # Adjust path to your project's public directory
+After connecting to your EC2 instance via SSH:
 
-            index index.php;
+1.  **Update System Packages:**
+    ```bash
+    sudo apt update
+    sudo apt upgrade -y
+    ```
+2.  **Install Nginx, PHP 8.3 and PHP-FPM, and essential extensions:**
+    ```bash
+    sudo apt install nginx php8.3 php8.3-fpm php8.3-sqlite3 php8.3-mbstring php8.3-xml php8.3-zip php8.3-pdo -y
+    ```
+3.  **Install Composer:**
+    ```bash
+    curl -sS https://getcomposer.org/installer -o composer-setup.php
+    sudo php composer-setup.php --install-dir=/usr/local/bin --filename=composer
+    sudo rm composer-setup.php
+    ```
+4.  **Verify Installations:**
+    ```bash
+    nginx -v
+    php -v
+    composer -V
+    ```
 
-            location / {
-                try_files $uri $uri/ /index.php?$query_string;
-            }
+### 2. Code Deployment
 
-            location ~ \.php$ {
-                include fastcgi_params;
-                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-                fastcgi_pass unix:/var/run/php/php8.4-fpm.sock; # Adjust PHP-FPM socket
-                fastcgi_index index.php;
-            }
+1.  **Navigate to a suitable directory (e.g., `/var/www/`):**
+    ```bash
+    cd /var/www/
+    ```
+2.  **Clone your GitHub repository:**
+    ```bash
+    sudo git clone [YOUR_GITHUB_REPO_LINK] hng13-stage1
+    # Example: sudo git clone https://github.com/Joe-encodes/hng13-stage1-backend.git hng13-stage1
+    ```
+3.  **Change ownership of the project directory to your user (for Composer/Git operations):**
+    ```bash
+    sudo chown -R ubuntu:ubuntu /var/www/hng13-stage1
+    ```
+4.  **Tell Git to trust the repository (important if cloned with sudo or ownership changed):**
+    ```bash
+    git config --global --add safe.directory /var/www/hng13-stage1
+    ```
+5.  **Navigate into the project directory:**
+    ```bash
+    cd /var/www/hng13-stage1
+    ```
+6.  **Install PHP dependencies for production:**
+    ```bash
+    composer install --no-dev --optimize-autoloader
+    ```
+7.  **Change ownership back to `www-data` (Nginx/PHP-FPM user):**
+    ```bash
+    sudo chown -R www-data:www-data /var/www/hng13-stage1
+    ```
 
-            error_log /var/log/nginx/hng13-error.log;
-            access_log /var/log/nginx/hng13-access.log;
+### 3. Database Configuration & Migration
+
+**Important**: For production, strongly consider using a managed database service like **AWS RDS** (e.g., PostgreSQL, MySQL) instead of SQLite directly on the EC2 instance.
+
+#### a. For SQLite on EC2 (as per `.env.example`)
+
+1.  **Ensure database directory and file exist with correct permissions:**
+    ```bash
+    sudo mkdir -p /var/www/hng13-stage1/database
+    sudo chown www-data:www-data /var/www/hng13-stage1/database
+    sudo chmod 775 /var/www/hng13-stage1/database
+    sudo touch /var/www/hng13-stage1/database/database.sqlite
+    sudo chown www-data:www-data /var/www/hng13-stage1/database/database.sqlite
+    sudo chmod 664 /var/www/hng13-stage1/database/database.sqlite
+    ```
+2.  **Run the database migration script:**
+    ```bash
+    cd /var/www/hng13-stage1 # Ensure you are in the project root
+    sudo php database/migrate.php
+    ```
+
+#### b. For AWS RDS (PostgreSQL/MySQL Example)
+
+1.  **Provision an AWS RDS instance:** (e.g., PostgreSQL or MySQL).
+2.  **Manually create the database schema on RDS:** Connect to your RDS instance using a database client (e.g., `psql` for PostgreSQL, `mysql` for MySQL) from your EC2 instance or local machine. Execute SQL commands to create the `strings` table. (You can generate this SQL from your `database/migrate.php` logic).
+
+### 4. Environment Variables on EC2 (for PHP-FPM)
+
+**Do NOT commit your `.env` file to Git.** Instead, configure these directly on the server.
+
+1.  **Edit the PHP-FPM pool configuration file:**
+    ```bash
+    sudo nano /etc/php/8.3/fpm/pool.d/www.conf
+    ```
+2.  **Add/uncomment and modify your database environment variables in the `[www]` section:**
+    ```ini
+    ; Example for SQLite:
+    env[DB_CONNECTION] = sqlite
+    env[DB_PATH] = /var/www/hng13-stage1/database/database.sqlite
+
+    ; Example for AWS RDS (uncomment and modify if using RDS):
+    ; env[DB_CONNECTION] = pgsql
+    ; env[DB_HOST] = your-rds-endpoint.aws.com
+    ; env[DB_PORT] = 5432
+    ; env[DB_DATABASE] = your_db_name
+    ; env[DB_USERNAME] = your_username
+    ; env[DB_PASSWORD] = your_password
+    ```
+3.  **Restart PHP-FPM service after changes:**
+    ```bash
+    sudo systemctl restart php8.3-fpm
+    ```
+
+### 5. Nginx Web Server Configuration
+
+1.  **Remove the default Nginx site configuration:**
+    ```bash
+    sudo rm /etc/nginx/sites-enabled/default
+    ```
+2.  **Create a new Nginx server block configuration file for your application:**
+    ```bash
+    sudo nano /etc/nginx/sites-available/hng13-stage1
+    ```
+3.  **Paste the following configuration into the file** (replace `your_domain.com` with your actual domain or EC2 Public IP/DNS, and ensure `fastcgi_pass` matches your PHP-FPM 8.3 socket):
+    ```nginx
+    server {
+        listen 80;
+        server_name your_domain.com; # Replace with your domain or EC2 Public IP/DNS
+        root /var/www/hng13-stage1/public; # Path to your project's public directory
+
+        index index.php;
+
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
         }
-        ```
-    *   Restart Nginx after configuration changes.
 
-4.  **Database Configuration:**
-    *   For production, consider a managed database service like **AWS RDS** (e.g., PostgreSQL, MySQL) instead of SQLite.
-    *   If using RDS, your `.env` variables will change to:
-        ```env
-        DB_CONNECTION=pgsql # or mysql
-        DB_HOST=your-rds-endpoint.aws.com
-        DB_PORT=5432 # or 3306
-        DB_DATABASE=your_db_name
-        DB_USERNAME=your_username
-        DB_PASSWORD=your_password
-        ```
-    *   **Crucially, ensure the database schema is created on deployment.** For this project, you might need to run the `database/migrate.php` script *once* on the server if using a fresh database, or adapt its schema creation logic.
+        location ~ \.php$ {
+            include fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_pass unix:/var/run/php/php8.3-fpm.sock; # Ensure this matches your PHP-FPM 8.3 socket
+            fastcgi_index index.php;
+            fastcgi_buffers 16 16k; # Increase buffer sizes
+            fastcgi_buffer_size 32k;
+        }
 
-5.  **Environment Variables on AWS:**
-    *   **Do NOT commit your `.env` file to Git.**
-    *   Instead, set your environment variables directly in your AWS deployment environment. For EC2, you might put them in a separate config file or directly in your application's startup script. For Elastic Beanstalk, there's a dedicated configuration section for environment properties.
+        error_log /var/log/nginx/hng13-error.log;
+        access_log /var/log/nginx/hng13-access.log;
+    }
+    ```
+4.  **Enable the Nginx configuration and restart Nginx:**
+    ```bash
+    sudo ln -s /etc/nginx/sites-available/hng13-stage1 /etc/nginx/sites-enabled/
+    sudo systemctl restart nginx
+    sudo systemctl enable nginx
+    ```
 
-6.  **Security:**
-    *   Configure AWS Security Groups to allow inbound HTTP (port 80) and HTTPS (port 443) traffic to your web server.
-    *   Restrict SSH access (port 22) to known IP addresses.
+### 6. Security: AWS Security Groups
 
-By following these steps, you should be able to get your application deployed and running on AWS successfully.
+1.  **In your AWS EC2 Console, navigate to "Security Groups".**
+2.  **Locate and modify the Security Group associated with your EC2 instance:**
+    *   **Inbound Rules:**
+        *   Add a rule for `HTTP (Port 80)` from `0.0.0.0/0` (or your specific IP for testing/restricted access).
+        *   Add a rule for `HTTPS (Port 443)` from `0.0.0.0/0` (strongly recommended for production).
+        *   Ensure `SSH (Port 22)` is allowed from `My IP` (your specific IP address, or a very restricted CIDR block).
+
+By diligently following these comprehensive steps, your PHP application should be successfully deployed and running on your AWS EC2 instance.
